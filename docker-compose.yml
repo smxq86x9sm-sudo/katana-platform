@@ -1,0 +1,83 @@
+services:
+  katana-core:
+    build:
+      context: ./packages/katana_core
+    env_file: .env
+    environment:
+      KATANA_MASTER_SECRET: ${KATANA_MASTER_SECRET}
+      KATANA_API_TOKEN: ${KATANA_API_TOKEN}
+      SSH_BRIDGE_URL: http://ssh-bridge:8001
+    networks:
+      - backend
+    restart: unless-stopped
+    volumes:
+      - katana_data:/app/data
+
+  ssh-bridge:
+    build:
+      context: ./packages/ssh_bridge
+    env_file: .env
+    environment:
+      SSH_HOST: ${SSH_HOST}
+      SSH_PORT: ${SSH_PORT:-22}
+      SSH_USER: ${SSH_USER}
+      SSH_KEY_PATH: ${SSH_KEY_PATH}
+      SSH_KNOWN_HOSTS: ${SSH_KNOWN_HOSTS}
+      API_TOKEN: ${KATANA_API_TOKEN}
+    volumes:
+      - ${SSH_KEY_HOST_PATH:-./keys}:/home/appuser/.ssh:ro
+    networks:
+      - backend
+    restart: unless-stopped
+
+  telegram-concierge:
+    build:
+      context: ./apps/telegram_concierge
+    env_file: .env
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS}
+      TELEGRAM_ADMIN_USER_IDS: ${TELEGRAM_ADMIN_USER_IDS}
+      KATANA_CORE_URL: http://katana-core:8000
+      KATANA_API_TOKEN: ${KATANA_API_TOKEN}
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL}
+      N8N_WEBHOOK_TOKEN: ${N8N_WEBHOOK_TOKEN}
+    volumes:
+      - concierge_data:/app/data
+    networks:
+      - backend
+      - egress
+    depends_on:
+      - katana-core
+      - ssh-bridge
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      N8N_HOST: 0.0.0.0
+      N8N_PORT: 5678
+      WEBHOOK_URL: http://localhost:5678/
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/data/workflows:ro
+    networks:
+      - backend
+      - egress
+    profiles:
+      - n8n
+    restart: unless-stopped
+
+networks:
+  backend:
+    driver: bridge
+    internal: true
+  egress:
+    driver: bridge
+
+volumes:
+  katana_data:
+  concierge_data:
+  n8n_data:
